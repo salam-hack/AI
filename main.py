@@ -1,54 +1,51 @@
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 import requests
-from datetime import datetime
 
 app = FastAPI()
 
-OLLAMA_URL = "http://localhost:11434/api/generate"
-
-# =====================================================
-# MODELS CONFIGURATION
-# =====================================================
+# تم التغيير لـ chat لضمان استقرار الذاكرة ومنع خطأ 500
+OLLAMA_URL = "http://localhost:11434/api/chat"
 CHAT_MODEL = "qwen2.5"
 
-# تخزين الرسائل
+# مخزن الرسائل
 messages_store = {}
 
 class ChatRequest(BaseModel):
     user_id: int
     message: str
 
-def call_llm(prompt, model_name):
+def call_llm(messages, model_name):
     try:
         response = requests.post(
             OLLAMA_URL,
             json={
                 "model": model_name,
-                "prompt": prompt,
+                "messages": messages, # نرسل قائمة الرسائل مباشرة
                 "stream": False,
                 "options": {
-                    "temperature": 0.2,  # تقليل الحرارة يمنع الهلوسة واللغات الغريبة
-                    "top_p": 0.9
+                    "temperature": 0.1,
+                    "top_p": 0.9,
                 }
             },
-            timeout=60
+            timeout=100
         )
         response.raise_for_status()
-        return response.json().get("response", "")
+        # استخراج المحتوى من هيكل الـ Chat API
+        return response.json().get("message", {}).get("content", "")
     except Exception as e:
         print(f"Error calling Ollama: {e}")
-        return "عذراً، حصلت مشكلة فنية بسيطة.. ممكن تسأل تاني؟"
+        return "عذراً، واجهت مشكلة فنية في معالجة طلبك المالي حالياً. حاول مرة أخرى."
 
 # =====================================================
-# CHATBOT (/chat)
+# CHATBOT ENDPOINT
 # =====================================================
 @app.post("/chat")
 def chat(req: ChatRequest):
     user_id = req.user_id
-    message = req.message
+    user_message = req.message
 
-    # بيانات المستخدم الثابتة
+    # بيانات المستخدم المالية الثابتة (الفيتشر الأولى)
     user_profile = {
         "income": 10000,
         "expenses": 7000,
@@ -57,62 +54,44 @@ def chat(req: ChatRequest):
     }
     net_savings = user_profile['income'] - (user_profile['expenses'] + user_profile['subscriptions'])
 
+    # 1. تهيئة الذاكرة بنظام الـ Roles (أفضل للتركيز)
     if user_id not in messages_store:
-        messages_store[user_id] = []
+        # رسالة النظام (System Prompt) لضبط الشخصية واللغة والعملة
+        messages_store[user_id] = [
+            {
+                "role": "system",
+                "content": f"""أنت "المستشار المالي الاستراتيجي" في السوق المصري.
+- اللغة: العربية فقط (ممنوع الصينية والإنجليزية).
+- العملة: الجنيه المصري (EGP).
+- البيانات المالية الحالية للمستخدم: دخل {user_profile['income']} ج.م، فائض {net_savings} ج.م، ديون {user_profile['debt']} ج.م.
+- الشخصية: حازم، عملي، تعتمد على الأرقام والنسب المئوية.
+- القاعدة: وجه المستخدم دائماً للادخار والاستثمار وارفض الرفاهية غير الضرورية."""
+            }
+        ]
 
-    # جلب التاريخ وتحويله لنص
-    history = messages_store[user_id][-6:]
-    history_text = "".join([f"{m['role']}: {m['text']}\n" for m in history])
+    # 2. إضافة رسالة المستخدم الجديدة للمخزن
+    messages_store[user_id].append({"role": "user", "content": user_message})
 
-    # البرومبت النهائي: حازم، متخصص، وبالعربي فقط
-    prompt = f"""
-    [تعليمات النظام - حظر لغوي صارم]:
-    أنت "المستشار المالي الاستراتيجي"، خبير رفيع المستوى في السوق المصري والإدارة المالية الشخصية.
-    - الرد يجب أن يكون باللغة العربية فقط (اللغة البيضاء أو الفصحى البسيطة).
-    - مسموح فقط باستخدام الحروف العربية والأرقام.
-    - يُمنع منعاً باتاً (STRICTLY FORBIDDEN) استخدام أي حروف صينية أو إنجليزية. إذا خالفت ذلك، سيعتبر الرد فشلاً تقنياً.
+    # 3. الحفاظ على سياق مركز (آخر 6 رسائل فقط + رسالة النظام) لتجنب Error 500
+    # رسالة النظام دائماً في البداية [0] ثم آخر 6 رسائل
+    if len(messages_store[user_id]) > 7:
+        system_msg = messages_store[user_id][0]
+        recent_history = messages_store[user_id][-6:]
+        messages_store[user_id] = [system_msg] + recent_history
 
-    [هوية المستشار]:
-    شخصيتك هي "الخبير الحازم". أنت لا تجامل المستخدم على حساب مصلحته المالية. هدفك هو تعظيم ثروته وحمايته من التضخم ومن الاندفاع الاستهلاكي.
+    # 4. طلب الرد من الموديل باستخدام قائمة الرسائل كاملة
+    reply = call_llm(messages_store[user_id], CHAT_MODEL)
 
-    [البيانات المالية الأساسية]:
-    - الدخل الشهري: {user_profile['income']} جنيه مصري.
-    - الفائض المتاح حالياً: {net_savings} جنيه مصري.
-    - الديون/الالتزامات: {user_profile['debt']} جنيه مصري.
+    # 5. إضافة رد المساعد للمخزن
+    messages_store[user_id].append({"role": "assistant", "content": reply})
 
-    [قواعد تحليل المحتوى]:
-    1. التخصص المالي: أجب فقط على الأسئلة المتعلقة بالمال، الميزانية، الاستثمار، والديون. اعتذر بذكاء عن أي موضوع آخر.
-    2. التحليل الرقمي: لا تتحدث بالإنشاء. استخدم لغة الأرقام والنسب المئوية (مثلاً: "هذا المصروف يمثل 10% من دخلك").
-    3. ترتيب الأولويات المالي: 
-       - أولاً: سداد الديون (خاصة عالية الفائدة).
-       - ثانياً: بناء صندوق طوارئ (يغطي مصاريف 3-6 شهور).
-       - ثالثاً: الاستثمار (ذهب، بورصة، صناديق استثمار، شهادات، عقار) حسب المبلغ المتاح.
-       - رابعاً: الرفاهية والكماليات (تُرفض تماماً إذا كان هناك ديون أو الفائض ضئيل).
-    4. الوعي بالسوق المصري: كن واعياً أن القوة الشرائية للجنيه تتأثر بالتضخم، لذا شجع دائماً على تحويل الفائض لأصول بدلاً من الكاش السائل.
-
-    [هيكلة الرد]:
-    يجب أن يتبع ردك هذا الترتيب:
-    - **تحليل الوضع**: (تقييم مالي سريع بالأرقام لرسالة المستخدم).
-    - **التوصية الاستراتيجية**: (القرار الذي يجب على المستخدم اتخاذه فوراً).
-    - **خطة العمل**: (خطوات 1، 2، 3 ينفذها المستخدم الآن).
-
-    [تاريخ المحادثة]:
-    {history_text}
-
-    [رسالة المستخدم الحالية]:
-    {message}
-
-    [رد المستشار المالي (باللغة العربية فقط)]:
-    """
-
-    reply = call_llm(prompt, CHAT_MODEL)
-
-    # تخزين الرسائل (user and assistant)
-    messages_store[user_id].append({"role": "user", "text": message})
-    messages_store[user_id].append({"role": "assistant", "text": reply})
-
-    return {"success": True, "reply": reply}
+    return {
+        "success": True,
+        "reply": reply,
+        "context_depth": len(messages_store[user_id]) // 2
+    }
 
 if __name__ == "__main__":
     import uvicorn
+    print("--- المستشار المالي (نسخة المحادثة المستقرة) تعمل الآن ---")
     uvicorn.run(app, host="0.0.0.0", port=8000)
