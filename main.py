@@ -1,4 +1,4 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 import requests
 import json
@@ -8,17 +8,19 @@ from datetime import datetime, timedelta
 app = FastAPI()
 
 OLLAMA_URL = "http://localhost:11434/api/generate"
-MODEL = "llama3"
 
 # =====================================================
-# MEMORY (replace with DB later)
+# MODELS CONFIGURATION
+# =====================================================
+PARSE_MODEL = "llama3"       # للفيتشر الأولى (متقربلهاش)
+CHAT_MODEL = "qwen2.5"       # للشات بوت الذكي
+
+# =====================================================
+# MEMORY
 # =====================================================
 messages_store = {}
 summary_store = {}
 
-# =====================================================
-# REQUEST MODELS
-# =====================================================
 class Transaction(BaseModel):
     text: str
 
@@ -26,78 +28,71 @@ class ChatRequest(BaseModel):
     user_id: int
     message: str
 
-
 # =====================================================
-# CALL OLLAMA
+# LLM CALL (يدعم اختيار الموديل)
 # =====================================================
-def call_llm(prompt):
-    response = requests.post(
-        OLLAMA_URL,
-        json={
-            "model": MODEL,
-            "prompt": prompt,
-            "stream": False
-        }
-    )
-    return response.json()["response"]
-
+def call_llm(prompt, model_name):
+    try:
+        response = requests.post(
+            OLLAMA_URL,
+            json={
+                "model": model_name,
+                "prompt": prompt,
+                "stream": False,
+                "options": {
+                    "temperature": 0.1 # تقليل العشوائية جداً للالتزام بالـ JSON
+                }
+            },
+            timeout=60
+        )
+        response.raise_for_status()
+        return response.json().get("response", "")
+    except Exception as e:
+        print(f"Error calling Ollama ({model_name}): {e}")
+        return None
 
 # =====================================================
 # SAFE JSON PARSER
 # =====================================================
 def extract_json(text):
-    match = re.search(r"\{.*\}", text, re.DOTALL)
-    if match:
-        return json.loads(match.group())
+    if not text: return None
+    try:
+        # تنظيف النص من أي Markdown
+        text = re.sub(r"```json|```", "", text)
+        start_idx = text.find('{')
+        end_idx = text.rfind('}')
+        if start_idx != -1 and end_idx != -1:
+            json_str = text[start_idx:end_idx+1]
+            return json.loads(json_str)
+    except Exception as e:
+        print(f"JSON Parsing Error: {e} | Text: {text}")
+        return None
     return None
 
-
 # =====================================================
-# 1. TRANSACTION PARSER (/parse)
+# TRANSACTION PARSER (/parse) - ثابتة على Llama 3
 # =====================================================
 def parse_transaction(text: str):
-
     today = datetime(2026, 4, 25)
-
     prompt = f"""
-You are a strict financial transaction parser.
-
+You are a STRICT financial transaction parser.
 Return ONLY valid JSON.
+RULES: No text outside JSON. No explanation. No markdown. date format YYYY-MM-DD. currency EGP. categories: Food, Transport, Bills, Shopping, Other.
 
-IMPORTANT:
-- Today is {today.strftime('%Y-%m-%d')}
-- "yesterday" = {(today - timedelta(days=1)).strftime('%Y-%m-%d')}
+TODAY: {today.strftime('%Y-%m-%d')}
+OUTPUT FORMAT: {{"amount": number, "merchant": string, "category": string, "date": string}}
 
-Rules:
-- No explanations
-- No markdown
-- No comments
-- date must be YYYY-MM-DD
-- currency is EGP
-- categories: Food, Transport, Bills, Shopping, Other
-
-Output:
-{{
-  "amount": number,
-  "merchant": string,
-  "category": string,
-  "date": string
-}}
-
-Text:
-"{text}"
+TEXT: "{text}"
 """
-
-    raw = call_llm(prompt)
+    raw = call_llm(prompt, PARSE_MODEL)
     data = extract_json(raw)
 
     return data if data else {
-        "amount": None,
+        "amount": 0,
         "merchant": "Unknown",
         "category": "Other",
         "date": today.strftime("%Y-%m-%d")
     }
-
 
 @app.post("/parse")
 def parse(tx: Transaction):
@@ -106,40 +101,24 @@ def parse(tx: Transaction):
         "data": parse_transaction(tx.text)
     }
 
-
 # =====================================================
-# 2. MEMORY SUMMARY
+# SUMMARY MEMORY
 # =====================================================
 def update_summary(history_text):
-    prompt = f"""
-You are a financial memory compressor.
-
-Summarize ONLY financial behavior:
-- income
-- spending
-- debt
-- subscriptions
-
-Return short paragraph only.
-
-Text:
-{history_text}
-"""
-    return call_llm(prompt)
-
+    prompt = f"قم بتلخيص هذا السلوك المالي باختصار شديد باللغة العربية. النص:\n{history_text}"
+    res = call_llm(prompt, CHAT_MODEL)
+    return res if res else "لا يوجد ملخص."
 
 # =====================================================
-# 3. CHATBOT (/chat)
+# CHATBOT (/chat) - شغال على Qwen 2.5
 # =====================================================
 @app.post("/chat")
 def chat(req: ChatRequest):
-
     user_id = req.user_id
     message = req.message
 
     # =====================================================
-    # BACKEND NOTE:
-    # Replace with real DB user profile
+    # MOCK PROFILE (الخلفية المالية لليوزر من الباك إيند)
     # =====================================================
     user_profile = {
         "income": 10000,
@@ -147,78 +126,78 @@ def chat(req: ChatRequest):
         "subscriptions": 500,
         "debt": 2000
     }
+    net_savings = user_profile['income'] - (user_profile['expenses'] + user_profile['subscriptions'])
 
     if user_id not in messages_store:
         messages_store[user_id] = []
 
-    messages_store[user_id].append({
-        "role": "user",
-        "text": message
-    })
+    history = messages_store[user_id][-8:] # آخر 8 رسائل
+    history_text = "\n".join([f"{m['role']}: {m['text']}" for m in history])
+    summary = summary_store.get(user_id, "لا يوجد ملخص سابق.")
 
-    history = messages_store[user_id][-10:]
+    # =====================================================
+    # SMART SYSTEM PROMPT FOR QWEN 2.5
+    # =====================================================
+    prompt = f"""You are an Expert Financial Advisor AI.
+You ONLY output valid JSON. No markdown, no greetings, no extra text.
 
-    history_text = "\n".join(
-        [f"{m['role']}: {m['text']}" for m in history]
-    )
+USER FINANCIAL PROFILE:
+- الدخل الشهري (Income): {user_profile['income']} جنيه
+- المصروفات (Expenses): {user_profile['expenses']} جنيه
+- الاشتراكات (Subscriptions): {user_profile['subscriptions']} جنيه
+- الديون (Debt): {user_profile['debt']} جنيه
+- الفائض الشهري (Net Savings): {net_savings} جنيه
 
-    summary = summary_store.get(user_id, "No summary yet")
+RULES:
+1. Answer the user based on their FINANCIAL PROFILE. If they ask "how much did I spend", use the profile data.
+2. STRICT TOPIC BOUNDARY: You ONLY answer questions related to finance, budget, purchasing decisions, and savings.
+3. IF OFF-TOPIC: If the user asks about history, coding, general knowledge, or anything non-financial, you MUST set "Decision" to "غير قابل للتطبيق" and reply in "Advice" politely like: "عذراً، أنا هنا لمساعدتك في أمورك المالية وإدارة ميزانيتك فقط. يرجى سؤالي في ما يخص ذلك."
+4. Language: Arabic ONLY.
 
-    prompt = f"""
-You are a STRICT financial assistant.
-
-RULE:
-- Only answer finance-related questions
-You MUST respond ONLY in Arabic.
-Do not use any English words under any condition.
-- If not finance → refuse politely
-
-USER PROFILE:
-Income: {user_profile['income']}
-Expenses: {user_profile['expenses']}
-Subscriptions: {user_profile['subscriptions']}
-Debt: {user_profile['debt']}
-
-MEMORY:
-{summary}
+EXPECTED JSON FORMAT:
+{{
+  "Decision": "نعم/لا/ربما/غير قابل للتطبيق",
+  "Reason": "تحليل دقيق بناءً على الأرقام، أو سبب الرفض لو الموضوع خارج التخصص",
+  "Advice": "نصيحة مالية مفيدة، أو توجيه للمستخدم"
+  "Expert_Insight": "معلومة إضافية بناءً على وضعك الحالي"
+}}
 
 CHAT HISTORY:
 {history_text}
 
-USER MESSAGE:
-{message}
-Respond ONLY in clean Arabic.
-No English words.
-No mixed languages.
-No extra commentary.
-Return ONLY in this format:
+USER: {message}
 
-Decision: (Yes / No / Maybe)
-Reason: short explanation
-Advice: actionable advice
+OUTPUT JSON ONLY:
+{{"""
 
-Rules:
-- Arabic only
-- No slang
-- No extra text
-- No emojis
-"""
+    raw_reply = call_llm(prompt, CHAT_MODEL)
 
-    reply = call_llm(prompt)
+    # معالجة النص لضمان بداية الـ JSON
+    if raw_reply and not raw_reply.strip().startswith('{'):
+        raw_reply = '{' + raw_reply
 
-    messages_store[user_id].append({
-        "role": "assistant",
-        "text": reply
-    })
+    structured = extract_json(raw_reply)
 
-    # update summary every 5 messages
-    if len(history) % 5 == 0:
-        full_history = "\n".join(
-            [f"{m['role']}: {m['text']}" for m in messages_store[user_id]]
-        )
+    if not structured:
+        structured = {
+            "Decision": "غير متوفر",
+            "Reason": "حدث خطأ في استيعاب الرد",
+            "Advice": "يرجى توضيح سؤالك المالي مرة أخرى."
+        }
+
+    # إضافة الرسائل للذاكرة
+    messages_store[user_id].append({"role": "user", "text": message})
+    messages_store[user_id].append({"role": "assistant", "text": json.dumps(structured, ensure_ascii=False)})
+
+    if len(messages_store[user_id]) % 5 == 0:
+        full_history = "\n".join([f"{m['role']}: {m['text']}" for m in messages_store[user_id]])
         summary_store[user_id] = update_summary(full_history)
 
     return {
         "success": True,
-        "reply": reply
+        "reply": structured
     }
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)
