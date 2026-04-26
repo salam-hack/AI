@@ -2,21 +2,17 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 import requests
 import json
+from datetime import datetime
 
 app = FastAPI()
 
 # =====================================================
-# CONFIGURATION
+# CONFIGURATION - Unified Model (Optimized)
 # =====================================================
 OLLAMA_GENERATE_URL = "http://localhost:11434/api/generate"
 OLLAMA_CHAT_URL = "http://localhost:11434/api/chat"
 
 SHARED_MODEL = "qwen2.5"
-
-USER_PROFILE_API = "http://backend/api/user-profile"
-CHAT_HISTORY_API = "http://backend/api/chat-history"
-SAVE_MESSAGE_API = "http://backend/api/save-message"
-CURRENT_DATE_API = "http://backend/api/current-date"
 
 messages_store = {}
 
@@ -28,77 +24,54 @@ class ChatRequest(BaseModel):
     message: str
 
 # =====================================================
-# BACKEND FUNCTIONS
-# =====================================================
-def get_user_profile(user_id):
-    res = requests.get(f"{USER_PROFILE_API}/{user_id}", timeout=5)
-    if res.status_code != 200:
-        raise HTTPException(status_code=500, detail="Failed to fetch user profile")
-    return res.json()
-
-def get_chat_history(user_id):
-    res = requests.get(f"{CHAT_HISTORY_API}/{user_id}", timeout=5)
-    if res.status_code != 200:
-        return []
-    return res.json()
-
-def save_message(user_id, role, content):
-    try:
-        requests.post(
-            SAVE_MESSAGE_API,
-            json={
-                "user_id": user_id,
-                "role": role,
-                "content": content
-            },
-            timeout=5
-        )
-    except:
-        pass
-
-def get_current_dates():
-    res = requests.get(CURRENT_DATE_API, timeout=5)
-    if res.status_code != 200:
-        raise HTTPException(status_code=500, detail="Failed to fetch current date")
-    return res.json()
-
-# =====================================================
 # FEATURE 1: TRANSACTION PARSER
 # =====================================================
 def call_parser_model(text: str):
-    dates = get_current_dates()
-
     prompt = f"""
 Task: Strict Financial Transaction Parser.
 Return ONLY valid JSON.
-IMPORTANT: Today is {dates['today']}. Yesterday is {dates['yesterday']}.
-Output format: {{"amount": number, "merchant": string, "category": string, "date": string}}
+
+
+IMPORTANT:
+- Today is 2026-04-25
+- Yesterday is 2026-04-24
+- The input text may be in Arabic. Understand Arabic correctly.
+Output format: {{"amount": number,"Product":string, "merchant": string, "category": string, "date": string}}
+Rules:
+- Product: the main item purchased (ignore quantity)
+-Return ONLY valid JSON.
+- Extract product name only (e.g., "fish", not "5 fish")
+Example:
+Text: "اشتريت 2 برجر من ماكدونالدز ب 150 جنيه النهاردة"
+Output:
+{{"amount":150,"Product":"burger","merchant":"McDonald's","category":"Food","date":"2026-04-25"}}
 Text: "{text}"
 """
     try:
+
         response = requests.post(
             OLLAMA_GENERATE_URL,
             json={
                 "model": SHARED_MODEL,
                 "prompt": prompt,
+                "format": "json",
                 "stream": False,
                 "options": {"temperature": 0.0}
             },
             timeout=60
         )
-        raw = response.json()["response"]
-        start = raw.find('{')
-        end = raw.rfind('}') + 1
-        return json.loads(raw[start:end])
+        print(response.json())
+        print(response.json()["response"])
+        return json.loads(response.json()["response"])
     except:
-        return {"amount": None, "merchant": "Unknown", "category": "Other", "date": dates['today']}
+        return {"amount": None,"Product":"Unknown", "merchant": "Unknown", "category": "Other", "date": "2026-04-25"}
 
 @app.post("/parse")
 def parse(tx: Transaction):
     return {"success": True, "data": call_parser_model(tx.text)}
 
 # =====================================================
-# FEATURE 2: FINANCIAL ADVISOR CHAT
+# FEATURE 2: FINANCIAL ADVISOR CHAT (With Sharia Compliance)
 # =====================================================
 def call_advisor_llm(messages):
     try:
@@ -111,8 +84,8 @@ def call_advisor_llm(messages):
                 "options": {
                     "temperature": 0.0,
                     "top_p": 0.1,
-                    "num_ctx": 2048,
-                    "num_predict": 500
+                    "num_ctx": 2048, # تقليل المساحة لـ 2048 لمنع الـ Error 500 تماماً
+                    "num_predict": 500 # تحديد طول الرد للحفاظ على ثبات الرامات
                 }
             },
             timeout=100
@@ -128,12 +101,10 @@ def chat(req: ChatRequest):
     user_id = req.user_id
     user_message = req.message
 
-    user_profile = get_user_profile(user_id)
+    user_profile = {"income": 10000, "expenses": 7000, "subscriptions": 0, "debt": 0}
     net_savings = user_profile['income'] - (user_profile['expenses'] + user_profile['subscriptions'])
 
     if user_id not in messages_store:
-        history = get_chat_history(user_id)
-
         messages_store[user_id] = [
             {
                 "role": "system",
@@ -151,10 +122,11 @@ def chat(req: ChatRequest):
 اياك تقترح لينك لأي موقع من عندك 
 [البيانات المالية الحالية]: دخل {user_profile['income']} ج.م، فائض {net_savings} ج.م."""
             }
-        ] + history[-3:]
+        ]
 
+    # إضافة رسالة المستخدم
     messages_store[user_id].append({"role": "user", "content": user_message})
-    save_message(user_id, "user", user_message)
+
 
     if len(messages_store[user_id]) > 4:
         system_msg = messages_store[user_id][0]
@@ -162,9 +134,7 @@ def chat(req: ChatRequest):
         messages_store[user_id] = [system_msg] + recent_history
 
     reply = call_advisor_llm(messages_store[user_id])
-
     messages_store[user_id].append({"role": "assistant", "content": reply})
-    save_message(user_id, "assistant", reply)
 
     return {
         "success": True,
@@ -174,5 +144,5 @@ def chat(req: ChatRequest):
 
 if __name__ == "__main__":
     import uvicorn
-    print(f"--- المستشار الإسلامي والـ Parser يعملان الآن على موديل: {SHARED_MODEL} ---")
+    print(f" البوت شات والـ Parser يعملان الآن على موديل: {SHARED_MODEL} ---")
     uvicorn.run(app, host="0.0.0.0", port=8000)
