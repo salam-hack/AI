@@ -1,0 +1,34 @@
+name: Build & Deploy
+
+on:
+  push:
+    branches: [ "deploy" ]
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build-and-deploy:
+    runs-on: self-hosted
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Login to GHCR
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+
+      - name: Build Image
+        run: |
+          docker build -t ghcr.io/salam-hack/ai:latest .
+
+      - name: Push Image
+        run: |
+          docker push ghcr.io/salam-hack/ai:latest
+
+      - name: Deploy on server
+        run: |
+          cd /home/kx9/modaber/ai
+          docker compose pull
+          docker compose up -d
