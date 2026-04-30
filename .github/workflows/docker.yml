@@ -31,4 +31,4 @@ jobs:
         run: |
           cd /home/kx9/modaber/ai
           docker compose pull
-          docker compose up -d
+          docker compose up -d --force-recreate
