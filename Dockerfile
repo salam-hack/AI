@@ -11,4 +11,4 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 
 # run app
-CMD ["python", "agents.py"]
+CMD ["python", "agent.py"]
