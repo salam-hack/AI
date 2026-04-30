@@ -159,7 +159,7 @@ def get_current_date():
         if res.status_code != 200:
             return "Unknown Date"
 
-        return res.json()
+        return res.text.strip()
 
     except Exception as e:
         print(f"Error fetching current date: {e}")
@@ -259,6 +259,7 @@ Rules:
 - Ignore quantities
 - No explanation
 - Return valid JSON only
+-Food items and groceries must always be categorized as "Food & Drinks"
 
 Allowed categories:
 - Food & Drinks
@@ -302,7 +303,7 @@ Text:
             "Product": "Unknown",
             "merchant": "Unknown",
             "category": "Other",
-            "date": "Unknown"
+            "date": "2026-5-25"
         }
 
 
@@ -332,7 +333,7 @@ def call_advisor_llm(messages):
                 "messages": messages,
                 "stream": False,
                 "options": {
-                    "temperature": 0.3,
+                    "temperature": 0.1,
                     "top_p": 0.1,
                     "num_ctx": 4096,
                     "num_predict": 500
@@ -400,10 +401,9 @@ def chat(req: ChatRequest):
 
     system_prompt = f"""
 أنت "رشيد" مساعد مالي ذكي داخل تطبيق "مدبر".
-
+تطبيق مدبر هو تطبيق لمتابعة النفقات المالية وتسجيل أهداف الأدخار 
 شخصيتك:
 - ودود وعملي
-- تتحدث باللهجة المصرية
 - تشرح ببساطة
 - إجاباتك مختصرة ومباشرة
 
@@ -412,6 +412,8 @@ def chat(req: ChatRequest):
 - ممنوع أي مواضيع خارج المال
 - ممنوع اقتراح قروض ربوية أو فوائد محرمة
 - لا تخترع معلومات غير موجودة
+- الرد يكون بالعربي فقط
+-ممنوع ترد بأي لغة غير العربي فقط
 
 التاريخ الحالي:
 {current_date}
