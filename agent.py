@@ -18,7 +18,6 @@ SHARED_MODEL = os.getenv("SHARED_MODEL")
 
 BASE_BACKEND_URL = os.getenv("BASE_BACKEND_URL")
 
-
 USER_PROFILE_API = f"{BASE_BACKEND_URL}/internal/ai-tools/user-profile"
 CONVERSATION_TURNS_API = f"{BASE_BACKEND_URL}/internal/ai-tools/conversation-turns"
 CHAT_SUMMARY_API = f"{BASE_BACKEND_URL}/internal/ai-tools/conversation-summary"
@@ -193,6 +192,7 @@ Rules:
 - Keep summary compact
 - Maximum 120 words
 - Return plain text only
+-you can only replay with arabic language 
 
 OLD SUMMARY:
 {old_summary}
@@ -215,7 +215,7 @@ UPDATED SUMMARY:
                 "prompt": prompt,
                 "stream": False,
                 "options": {
-                    "temperature": 0.1
+                    "temperature": 0.0
                 }
             },
             timeout=60
@@ -303,7 +303,7 @@ Text:
             "Product": "Unknown",
             "merchant": "Unknown",
             "category": "Other",
-            "date": "2026-5-25"
+            "date": current_date
         }
 
 
@@ -333,7 +333,7 @@ def call_advisor_llm(messages):
                 "messages": messages,
                 "stream": False,
                 "options": {
-                    "temperature": 0.1,
+                    "temperature": 0.0,
                     "top_p": 0.1,
                     "num_ctx": 4096,
                     "num_predict": 500
@@ -401,7 +401,8 @@ def chat(req: ChatRequest):
 
     system_prompt = f"""
 أنت "رشيد" مساعد مالي ذكي داخل تطبيق "مدبر".
-تطبيق مدبر هو تطبيق لمتابعة النفقات المالية وتسجيل أهداف الأدخار 
+تطبيق مدبر هو تطبيق لمتابعة النفقات المالية وتسجيل أهداف الادخار.
+
 شخصيتك:
 - ودود وعملي
 - تشرح ببساطة
@@ -412,8 +413,8 @@ def chat(req: ChatRequest):
 - ممنوع أي مواضيع خارج المال
 - ممنوع اقتراح قروض ربوية أو فوائد محرمة
 - لا تخترع معلومات غير موجودة
-- الرد يكون بالعربي فقط
--ممنوع ترد بأي لغة غير العربي فقط
+- الرد يكون باللغة العربية فقط
+- ممنوع ترد بأي لغة غير العربية
 
 التاريخ الحالي:
 {current_date}
