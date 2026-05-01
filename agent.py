@@ -351,7 +351,7 @@ def call_advisor_llm(messages):
                 "messages": messages,
                 "stream": False,
                 "options": {
-                    "temperature": 0.0,
+                    "temperature": 0.1,
                     "top_p": 0.1,
                     "num_ctx": 4096,
                     "num_predict": 500
@@ -442,6 +442,7 @@ def chat(req: ChatRequest):
 - لا تخترع معلومات غير موجودة
 - لا تؤلف أرقام أو بيانات غير مؤكدة
 - استخدم أسلوبًا طبيعيًا وبسيطًا وواضحًا
+-العملة هي جنيه مصري 
 
 أسلوب الرد:
 - ردود قصيرة نسبيًا
