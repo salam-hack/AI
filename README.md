@@ -1,3 +1,4 @@
+<img width="7680" height="4096" alt="Portfolio Cover" src="https://github.com/user-attachments/assets/231e7f80-008e-475f-8a56-2cfd71f2ff87" />
 # 🤖 Modabber AI Backend
 
 An intelligent AI-powered backend system for **Modabber**, designed to process natural language financial inputs, analyze user behavior, and generate smart insights using local LLMs.
@@ -32,7 +33,7 @@ It allows users to:
 
 ### 🧠 AI Layer
 - Ollama (Local LLM runtime)
-- Qwen2.5 LLM
+- llama3.1 LLM
 
 ### 🐍 Backend
 - Python
@@ -124,7 +125,7 @@ pip install -r requirements.txt
 Make sure Ollama is installed and run:
 
 ```bash
-ollama run qwen2.5
+ollama run llama3.1
 ```
 
 ---
@@ -167,11 +168,8 @@ modabber-ai/
 
 ## 👨‍💻 Developed by
 
-- **Bilal_Weshah<img width="7680" height="4096" alt="Portfolio Cover" src="https://github.com/user-attachments/assets/231e7f80-008e-475f-8a56-2cfd71f2ff87" />
-<img width="7680" height="4096" alt="Portfolio Cover" src="https://github.com/user-attachments/assets/f812b4ed-5149-449b-a965-0fc3d28550c1" />
-<img width="7680" height="4096" alt="Portfolio Cover" src="https://github.com/user-attachments/assets/4b927afe-d810-47ec-85e7-ed59fa997a6e" />
-<img width="7680" height="4096" alt="Portfolio Cover" src="https://github.com/user-attachments/assets/8a5c32f0-7e4c-4b09-825c-b38df0c78685" />
-<img width="7680" height="4096" alt="Portfolio Cover" src="https://github.com/user-attachments/assets/06d800b6-deaa-47df-b19e-f5adf23b9baf" />
+- **Bilal_Weshah
+
 **
 
 ---
