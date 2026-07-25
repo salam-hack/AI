@@ -169,9 +169,7 @@ modabber-ai/
 
 ## 👨‍💻 Developed by
 
-- **Bilal_Weshah
-
-**
+- **Bilal_Weshah**
 
 ---
 
